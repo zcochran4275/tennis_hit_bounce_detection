@@ -78,77 +78,6 @@ def remove_computer_vision_transports(data):
 
     data.loc[bad_rows, ["x", "y", "visible"]] = [np.nan, np.nan, False]
     return data
-
-def NMS(potential_values, extrema):
-    """
-    Applies Non-Maximal Suppresion to potential extrema values to find the true extrema
-    
-    :param potential_values: Potential Values for extrema
-    :param extrema: Whether we are finding local max or min
-    """
-    local_extrema = []
-    for i, row in potential_values.iterrows():
-        frame = row["frames"]
-        y = row["y"]
-        candidates = potential_values[(potential_values.frames >= frame - 10) & (potential_values.frames <= frame + 10)]
-        max_y_candidates = candidates["y"].max()
-        min_y_candidates = candidates["y"].min()
-        if extrema == "max":
-            if y < max_y_candidates:
-                pass
-            else:
-                local_extrema.append(row)
-        else:
-            if y > min_y_candidates:
-                pass
-            else:
-                local_extrema.append(row)
-    local_extrema = pd.concat(local_extrema,axis=1).T
-    return local_extrema
-
-def find_extrema(data):
-    # Find potential local minimum and maximum from data using rolling average of dx, dy of ball
-    potential_maxes = []
-    potential_mins = []
-
-    for i, row in data.iterrows():
-        frame = row["frames"]
-        dy = row["dy"]
-        ay = row["ay"]
-        
-        before = data[(data.frames >= frame - 3) & (data.frames < frame)]
-        after = data[(data.frames > frame) & (data.frames <= frame + 3)]
-        around = data[(data.frames >= frame-5) & (data.frames <= frame + 5)]
-        
-        avg_before_dy = before.dy.mean()
-        avg_after_dy = after.dy.mean()
-        
-        around_ay = around.ay.mean()
-        
-        if (avg_after_dy < 0 or pd.isna(avg_after_dy)) and (avg_before_dy > 0 or pd.isna(avg_before_dy)) and around_ay < 0: # Local maximum Criteria
-            potential_maxes.append(row)
-        elif (avg_after_dy > 0 or pd.isna(avg_after_dy)) and (avg_before_dy < 0 or pd.isna(avg_before_dy)) and around_ay > 0: # Local minimum Criteria
-            potential_mins.append(row)
-            
-    potential_maxes = pd.concat(potential_maxes,axis=1).T
-    potential_mins = pd.concat(potential_mins,axis=1).T
-
-    # Apply Non-Maximal Suppression to condense potential minimum into actual local minimum
-    local_maxes = NMS(potential_maxes,extrema="max")
-    local_mins = NMS(potential_mins,extrema="min")
-    
-    local_mins = local_mins.groupby("y").first().reset_index()
-    local_maxes = local_maxes.groupby("y").first().reset_index()
-    local_mins["extrema"] = "min"
-    local_maxes["extrema"] = "max"
-
-    # Add all the extrema into a df to identify hits and bounces
-    extrema = pd.concat([local_mins,local_maxes]).sort_values("frames")
-    extrema["dy_from_next_extrema"]  = extrema["y"].diff(-1) * -1
-    extrema["dy_from_sim_extrema"] = extrema.groupby("extrema")["y"].diff(-1) * -1
-    extrema = extrema.reset_index().drop("index",axis=1)
-    
-    return extrema
     
 def unsupervised_hit_bounce_detection(ball_data_i):
     raw_data = pd.read_json(f"data/per_point_v2/{ball_data_i}").T.reset_index(names="frames")
@@ -226,19 +155,19 @@ def unsupervised_hit_bounce_detection(ball_data_i):
         elif dy_over_next_30_frames == window.dy_over_next_30.min():
             return "min"
     
-    upper_hits = data[(data["ay"] <= -5) & (data.dy_over_next_30 <= -150) & (data.average_dy_over_next_10 < 0) & (data.y > 500)] # good for top hits that make it over the net 
+    upper_hits = data[(data["ay"] <= -.5) & (data.dy_over_next_30 <= -150) & (data.average_dy_over_next_10 < 0) & (data.y > 500)] # good for top hits that make it over the net 
     upper_hits["extrema_in_dy_over_30"] = upper_hits.apply(local_extrema_in_dy_over_next_30,axis=1,args=(upper_hits,))
     upper_hits = upper_hits[upper_hits.extrema_in_dy_over_30 == "min"]
     upper_hits["hit_type"] = "upper"
 
-    lower_hits = data[(data["ay"] >= .5) & (data.dy_over_next_30 >= 150) & (data.average_dy_over_next_10 > 0) & (data.y < 500)] # good for bottom hits that make it over the net
+    lower_hits = data[(data["ay"] >= .45) & (data.dy_over_next_30 >= 150) & (data.average_dy_over_next_10 > 0) & (data.y < 500)] # good for bottom hits that make it over the net
     lower_hits["extrema_in_dy_over_30"] = lower_hits.apply(local_extrema_in_dy_over_next_30,axis=1,args=(lower_hits,))
     lower_hits = lower_hits[lower_hits.extrema_in_dy_over_30 == "max"]
     #Correct lower hits
     corrected_lower_hits = []
     for i, lower_hit in lower_hits.iterrows():
         frame = lower_hit["frames"]
-        before = data[(data.frames >= frame - 20) & (data.frames <= frame)]
+        before = data[(data.frames >= frame - 50) & (data.frames <= frame)]
         idx = before["y"].idxmin()
         min_y_before = data.loc[idx]
         corrected_lower_hits.append(min_y_before)
@@ -266,8 +195,7 @@ def unsupervised_hit_bounce_detection(ball_data_i):
         max_ay_before_first_hit = pd.Series()
             
     if len(max_ay_before_first_hit)>0:
-        pred_hits = pd.concat([max_ay_before_first_hit.to_frame().T,pred_hits])
-    
+        pred_hits = pd.concat([max_ay_before_first_hit.to_frame().T,pred_hits])  
         
     pred_hits["frame_gap"] = pred_hits.frames.diff()
     pred_hits["group_id"] = (pred_hits["frame_gap"] > 300).cumsum()
@@ -314,124 +242,78 @@ def unsupervised_hit_bounce_detection(ball_data_i):
 
     return output
 
-# def unsupervised_hit_bounce_detection(ball_data_i):
-#     raw_data = pd.read_json(f"data/per_point_v2/{ball_data_i}").T.reset_index(names="frames")
+
+def NMS(potential_values, extrema):
+    """
+    Applies Non-Maximal Suppresion to potential extrema values to find the true extrema
     
-#     data = raw_data.copy()
+    :param potential_values: Potential Values for extrema
+    :param extrema: Whether we are finding local max or min
+    """
+    local_extrema = []
+    for i, row in potential_values.iterrows():
+        frame = row["frames"]
+        y = row["y"]
+        candidates = potential_values[(potential_values.frames >= frame - 10) & (potential_values.frames <= frame + 10)]
+        max_y_candidates = candidates["y"].max()
+        min_y_candidates = candidates["y"].min()
+        if extrema == "max":
+            if y < max_y_candidates:
+                pass
+            else:
+                local_extrema.append(row)
+        else:
+            if y > min_y_candidates:
+                pass
+            else:
+                local_extrema.append(row)
+    local_extrema = pd.concat(local_extrema,axis=1).T
+    return local_extrema
 
-#     data["x"] = pd.to_numeric(data["x"], errors="coerce")
-#     data["y"] = pd.to_numeric(data["y"], errors="coerce")
-    
-#     data = remove_computer_vision_transports(data)
+def find_extrema(data):
+    # Find potential local minimum and maximum from data using rolling average of dx, dy of ball
+    potential_maxes = []
+    potential_mins = []
 
-#     data[["x", "y"]] = data[["x", "y"]].interpolate(limit_direction="both")
-#     data = data.sort_values("frames")
-
-#     # Create a smoother x,y for derivatives
-#     data["x_s"] = savgol_filter(data["x"], window_length=9, polyorder=2)
-#     data["y_s"] = savgol_filter(data["y"], window_length=9, polyorder=2)
-#     data.loc[:,"dx"] = data["x_s"].diff(1)
-#     data["dx_s"] = data["x_s"].diff(1)
-#     data.loc[:,"dy"] = data["y_s"].diff(1)
-#     data[["dx", "dy"]] = data[["dx", "dy"]].bfill()
-#     data["dy_s"] = data["y_s"].diff(1)
-#     data.loc[:,"speed"] = (data["dx"] ** 2 + data["dy"] **2) ** 1/2
-
-#     data.loc[:,"ax"] = data["dx"].diff(1)
-#     data.loc[:,"ay"] = data["dy"].diff(1)
-#     data[["ax", "ay"]] = data[["ax", "ay"]].bfill()
-#     data.loc[:,"acceleration"] = (data["ax"] ** 2 + data["ay"] **2) ** 1/2
-    
-#     extrema = find_extrema(data)
-
-#     lower_hits = extrema[(extrema.extrema == "min") & (extrema.dy_from_next_extrema > 200) & (extrema.y < 500)].sort_values("frames")
-#     upper_hits = extrema[(extrema.extrema == "max") & (extrema.dy_from_next_extrema < -200) & (extrema.y > 500)].sort_values("frames")
-
-#     pred_hits = pd.concat([upper_hits,lower_hits]).sort_values("frames").drop_duplicates()
-#     pred_hits["frame_gap"] = pred_hits.frames.diff()
-#     pred_hits["group_id"] = (pred_hits["frame_gap"] > 300).cumsum()
-    
-#     bounces_between_hits = []
-
-#     for gid, pred_hit_group in pred_hits.groupby("group_id"):
-#         g_extrema = extrema[(extrema.frames >= pred_hit_group.frames.min()) & (extrema.frames <= pred_hit_group.frames.max() + 100)]   
-#         net_hits = []
-#         for i, e in g_extrema.iterrows():
-#             frame = e.frames
-#             if np.abs(e.dy_from_next_extrema) > 100:
-#                 next_e = extrema.loc[i+1]
-#                 next_frame = next_e["frames"]
-#                 next_y = next_e.y
-                
-#                 if next_y > 400 and next_y < 600:
-#                     after_hit = data[(data.frames > next_frame + 10) & (data.frames <= next_frame + 30)]
-#                     if not after_hit.empty and after_hit["y"].between(400, 600).all():
-#                         net_hits.append(e)
-#         if len(net_hits) > 0:
-#             net_hits = pd.concat(net_hits,axis=1).T
-#             net_hits["group_id"] = gid
-#             pred_hit_group = pd.concat([pred_hit_group,net_hits]).drop_duplicates(subset="frames", keep="first").sort_values("frames")
-#             pred_hits = pd.concat([pred_hits,net_hits]).drop_duplicates(subset="frames", keep="first").sort_values("frames") 
-            
-#         for i  in range(pred_hit_group.shape[0] - 1):
-#             first_hit = pred_hit_group.iloc[i]
-#             second_hit = pred_hit_group.iloc[i+1]
-            
-#             first_frame = first_hit.frames
-#             second_frame = second_hit.frames
-#             if second_frame - 5 - (first_frame + 5) < 3:
-#                 continue
-            
-#             between = data[(data.frames > first_frame + 5) & (data.frames < second_frame - 5)].copy()
-#             between["ay_roll3"] = between["ay"].rolling(
-#                 window=3,
-#                 center=True,
-#                 min_periods=3
-#             ).mean()
-
-#             # get index of minimum rolling average
-#             idx = between["ay_roll3"].idxmin()
-
-#             # extract the CENTER row
-#             min_ay_between = between.loc[idx]
-#             bounces_between_hits.append(min_ay_between)
+    for i, row in data.iterrows():
+        frame = row["frames"]
+        dy = row["dy"]
+        ay = row["ay"]
         
-#         if len(net_hits) > 0: # Check if last hit is a net hit if so keep that hit
-#             if pred_hit_group.iloc[-1].frames == net_hits.iloc[-1].frames:
-#                 potential_bounce_after = pd.DataFrame()
-#                 pass
-#         else:
-#             potential_bounce_after = extrema[(extrema.frames > pred_hit_group.iloc[-1].frames) & (extrema.extrema == "max")]
-#             if potential_bounce_after.shape[0]>0:
-#                 potential_bounce_after = potential_bounce_after.iloc[0]
-#                 bounces_between_hits.append(potential_bounce_after)
-                
-#     # Creating Output
-#     raw_data = raw_data.set_index("frames")
-#     if len(bounces_between_hits) > 0:
-#         pred_bounces = pd.concat(bounces_between_hits,axis=1).T
-#         raw_data.loc[pred_bounces.frames,"pred_action"] = "bounce"  
-                 
-    
-#     raw_data.loc[pred_hits.frames, "pred_action"] = "hit"
-    
-#     raw_data["pred_action"] = raw_data["pred_action"].fillna("air")
+        before = data[(data.frames >= frame - 3) & (data.frames < frame)]
+        after = data[(data.frames > frame) & (data.frames <= frame + 3)]
+        around = data[(data.frames >= frame-5) & (data.frames <= frame + 5)]
+        
+        avg_before_dy = before.dy.mean()
+        avg_after_dy = after.dy.mean()
+        
+        around_ay = around.ay.mean()
+        
+        if (avg_after_dy < 0 or pd.isna(avg_after_dy)) and (avg_before_dy > 0 or pd.isna(avg_before_dy)) and around_ay < 0: # Local maximum Criteria
+            potential_maxes.append(row)
+        elif (avg_after_dy > 0 or pd.isna(avg_after_dy)) and (avg_before_dy < 0 or pd.isna(avg_before_dy)) and around_ay > 0: # Local minimum Criteria
+            potential_mins.append(row)
+            
+    potential_maxes = pd.concat(potential_maxes,axis=1).T
+    potential_mins = pd.concat(potential_mins,axis=1).T
 
-#     raw_data = raw_data.reset_index()
-#     raw_data["frames"] = raw_data["frames"].astype(str)
-
-#     output = {
-#         row.frames: {
-#             "x": None if pd.isna(row.x) else int(row.x),
-#             "y": None if pd.isna(row.y) else int(row.y),
-#             "visible": bool(row.visible),
-#             "action": row.action,
-#             "pred_action": row.pred_action,
-#         }
-#         for _, row in raw_data.iterrows()
-#     }
+    # Apply Non-Maximal Suppression to condense potential minimum into actual local minimum
+    local_maxes = NMS(potential_maxes,extrema="max")
+    local_mins = NMS(potential_mins,extrema="min")
     
-#     return output
+    local_mins = local_mins.groupby("y").first().reset_index()
+    local_maxes = local_maxes.groupby("y").first().reset_index()
+    local_mins["extrema"] = "min"
+    local_maxes["extrema"] = "max"
+
+    # Add all the extrema into a df to identify hits and bounces
+    extrema = pd.concat([local_mins,local_maxes]).sort_values("frames")
+    extrema["dy_from_next_extrema"]  = extrema["y"].diff(-1) * -1
+    extrema["dy_from_sim_extrema"] = extrema.groupby("extrema")["y"].diff(-1) * -1
+    extrema = extrema.reset_index().drop("index",axis=1)
+    
+    return extrema
+
 
 def create_model_input_from_json(ball_data_i):
     raw_data = pd.read_json(f"data/per_point_v2/{ball_data_i}").T.reset_index(names="frames")
