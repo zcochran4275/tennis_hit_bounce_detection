@@ -87,7 +87,7 @@ Given the raw tracking data we performed the following steps to train the model.
 3. Calculated dx, dy, speed, ax, ay, acceleration for each frame.
 4. Added additional columns that contain a 3 point rolling mean for each of the features above so that the algorithm isn't susceptible to random sharp changes.
 5. Computed if each frame was a local max/min from second derivative tests and non-maximal suppression.
-6. Added the 3 previous frames features as additional temporal context for each frame.
+6. Added the 3 previous frames and 3 next frames as features for additional temporal context for each frame.
 7. Used the features and actual labels to train an XGBoost model to predict which frames are hits / bounces.
 
 #### Supervised Results 
@@ -97,5 +97,5 @@ Using per-event matching with a ±5 frame tolerance, the model achieved the foll
 
 | Event   | Correct | Total | Accuracy |
 |--------|---------|-------|----------|
-| Hit    | 1376   | 1600  | **86%** |
-| Bounce | 1258    | 1446  | **87%** |
+| Hit    | 1473   | 1600  | **92%** |
+| Bounce | 1355    | 1446  | **93.7s%** |

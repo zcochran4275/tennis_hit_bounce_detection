@@ -366,7 +366,9 @@ def create_model_input_from_json(ball_data_i):
 
     lag_features = ['dx', 'dy', 'speed', 'ax', 'ay', 'acceleration']
     for feat in lag_features:
-        for lag in range(1, 4):  # 1 to 3 frames ago
+        for lag in range(-3, 4):  # 3 frames on each side
+            if lag == 0:
+                continue
             X[f"{feat}_lag{lag}"] = X[feat].shift(lag)
     
     return X, raw_data
