@@ -6,3 +6,4 @@ scipy
 xgboost
 supervision
 tqdm
+json

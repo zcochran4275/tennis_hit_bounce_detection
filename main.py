@@ -80,7 +80,9 @@ def remove_computer_vision_transports(data):
     return data
     
 def unsupervised_hit_bounce_detection(ball_data_i):
-    raw_data = pd.read_json(f"data/per_point_v2/{ball_data_i}").T.reset_index(names="frames")
+    raw_data = pd.DataFrame.from_dict(ball_data_i, orient="index").reset_index(names="frames")
+    raw_data["frames"] = raw_data["frames"].astype(int)
+    # raw_data = pd.read_json(f"data/per_point_v2/{ball_data_i}").T.reset_index(names="frames")
     
     data = raw_data.copy()
 
@@ -316,7 +318,9 @@ def find_extrema(data):
 
 
 def create_model_input_from_json(ball_data_i):
-    raw_data = pd.read_json(f"data/per_point_v2/{ball_data_i}").T.reset_index(names="frames")
+    raw_data = pd.DataFrame.from_dict(ball_data_i, orient="index").reset_index(names="frames")
+    raw_data["frames"] = raw_data["frames"].astype(int)
+    # raw_data = pd.read_json(f"data/per_point_v2/{ball_data_i}").T.reset_index(names="frames")
         
     data = raw_data.copy()
 
